@@ -101,14 +101,18 @@ describe('Queue', function() {
     queue.push(walter);
 
     expect(queue.length()).to.equal(2);
-    queue.remove({name: 'jesse'});
+    queue.remove({name: 'jesse'}, function(a, b) {
+      return a.name === b.name;
+    });
     expect(queue.length()).to.equal(1);
     expect(queue.contains({name: 'jesse'})).to.be.false;
 
     queue.push(jesse);
 
     expect(queue.length()).to.equal(2);
-    queue.remove({name: 'jesse'});
+    queue.remove({name: 'jesse'}, funciton(a, b) {
+      return a.name === b.name;
+    });
     expect(queue.length()).to.equal(1);
     expect(queue.contains({name: 'jesse'})).to.be.false;
   });

@@ -42,22 +42,22 @@ module.exports = function(robot) {
    */
   function queueUser(res) {
     var user = res.message.user.name
-      , length = queue.length()
       , metadata = (res.match[2] || '').trim();
-
-    if (queue.contains({name: user})) {
-      res.reply('Sorry but you can only have one position in the queue at a time. Please complete your first deploy before requeueing yourself.');
-      return;
-    }
 
     queue.push({name: user, metadata: metadata});
 
-    if (length === 0) {
+    var length = queue.length();
+    var isCurrent = queue.isCurrent({ name: user });
+    var grouped = firstGroup();
+
+    if (length === 1) {
       res.reply('Go for it!');
-    } else if (length === 1) {
+    } else if (length === 2 && !isCurrent) {
       res.reply('Alrighty, you\'re up after current deployer.');
+    } else if (isCurrent && length == grouped.length) {
+      res.reply('Ok! You are now deploying ' + grouped.length + ' things in a row.');
     } else {
-      res.reply('There\'s ' + length + ' people ahead of you. I\'ll let you know when you\'re up.');
+      res.reply('There\'s ' + (length - 1) + ' things to deploy in the queue ahead of you. I\'ll let you know when you\'re up.');
     }
   }
 
@@ -66,23 +66,29 @@ module.exports = function(robot) {
    * @param res
    */
   function dequeueUser(res) {
-    var user = res.message.user.name;
+    var user = { name: res.message.user.name };
 
-    if (!queue.contains({name: user})) {
+    if (!queue.contains(user)) {
       res.reply('Ummm, this is a little embarrassing, but you aren\'t in the queue :grimacing:');
       return;
     }
 
-    if (!queue.isCurrent({name: user})) {
+    if (!queue.isCurrent(user)) {
       res.reply('Nice try, but it\'s not your turn yet');
       return;
     }
 
     queue.advance();
-    res.reply('Nice job! :tada:');
+    var grouped = firstGroup();
 
-    if (!queue.isEmpty()) {
-      // Send DM to next in line if the queue isn't empty
+    if (queue.isCurrent(user)) {
+      res.reply('Nice! Only ' + grouped.length + ' more to go! ' + getRandomReaction());
+    } else {
+      res.reply('Nice job! :tada:');
+    }
+
+    if (!queue.isEmpty() && !queue.isCurrent(user)) {
+      // Send DM to next in line if the queue isn't empty and it's not the person who just finished deploying.
       notifyUser(queue.current());
     }
   }
@@ -103,7 +109,14 @@ module.exports = function(robot) {
       var current = queue.current()
         , message = current.name + ' is deploying';
 
-      message += current.metadata ? ' ' + current.metadata : '.';
+      var grouped = firstGroup();
+
+      if (grouped.length === 1) {
+        message += current.metadata ? ' ' + current.metadata : '.';
+      } else {
+        message += ' ' + grouped.length + ' items.';
+      }
+
       res.send(message);
     }
   }
@@ -119,7 +132,7 @@ module.exports = function(robot) {
     if (!next) {
       res.send('Nobody!');
     } else if (queue.isNext({name: user})) {
-      res.reply('You\'re up next! Get ready!');
+      res.reply('You\'re up next!');
     } else {
       res.send(queue.next().name + ' is next.');
     }
@@ -145,7 +158,7 @@ module.exports = function(robot) {
       return;
     }
 
-    queue.remove(user);
+    queue.remove(user, areUsersEqual);
     res.send(name + ' has been removed from the queue. I hope that\'s what you meant to do...');
 
     if (notifyNextUser) {
@@ -166,7 +179,7 @@ module.exports = function(robot) {
     } else if (queue.isCurrent(user)) {
       res.reply('You\'re deploying right now! Did you mean `deploy done`?');
     } else {
-      queue.remove(user);
+      queue.remove(user, areUsersEqual);
       res.reply('Alright, I took you out of the queue. Come back soon!');
     }
   }
@@ -192,10 +205,43 @@ module.exports = function(robot) {
   }
 
   /**
+   * Get a list of all the items at the beginning of the queue for a given user.
+   */
+  function firstGroup() {
+    const queueValue = queue.get();
+    var last = queueValue[0];
+    if (last === undefined) {
+      return [];
+    }
+
+    var group = [last];
+    for (var index = 0; index < queueValue.length; index++) {
+      var next = queueValue[index + 1];
+      if (next && next.name === last.name) {
+        group.push(next);
+        last = next;
+      } else {
+        break;
+      }
+    }
+
+    return group;
+  }
+
+  /**
    * Notify a user via DM that it's their turn
    * @param user
    */
   function notifyUser(user) {
-    robot.messageRoom(user.name, 'Hey, your turn to deploy!');
+    robot.messageRoom(user.name, 'Hey, it\'s your turn to deploy!');
+  }
+
+  function getRandomReaction() {
+    const reactions = [':smart:', ':rocket:', ':hyperclap:', ':confetti_ball:'];
+    return reactions[Math.floor(Math.random() * reactions.length)];
+  }
+
+  function areUsersEqual(u1, u2) {
+    return u1.name === u2.name;
   }
 };

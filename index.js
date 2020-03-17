@@ -172,15 +172,18 @@ module.exports = function(robot) {
    */
   function removeMe(res) {
     var name = res.message.user.name
-      , user = {name: name};
+      , user = {name: name}
+      , wasCurrent = queue.isCurrent(user);
 
     if (!queue.contains(user)) {
       res.reply('No sweat! You weren\'t even in the queue :)');
-    } else if (queue.isCurrent(user)) {
-      res.reply('You\'re deploying right now! Did you mean `deploy done`?');
     } else {
       queue.remove(user, areUsersEqual);
       res.reply('Alright, I took you out of the queue. Come back soon!');
+      if (!queue.isEmpty() && wasCurrent) {
+        // Send DM to next in line if the queue isn't empty and it's not the person who just finished deploying.
+        notifyUser(queue.current());
+      }
     }
   }
 

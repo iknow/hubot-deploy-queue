@@ -57,7 +57,8 @@ module.exports = function(robot) {
     } else if (isCurrent && length == grouped.length) {
       res.reply('Ok! You are now deploying ' + grouped.length + ' things in a row.');
     } else {
-      res.reply('There\'s ' + (length - 1) + ' things to deploy in the queue ahead of you. I\'ll let you know when you\'re up.');
+      var preamble = length === 2 ? 'There\'s ' : 'There\'re ';
+      res.reply(preamble + (length - 1) + ' things to deploy in the queue ahead of you. I\'ll let you know when you\'re up.');
     }
   }
 

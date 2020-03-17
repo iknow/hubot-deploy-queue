@@ -88,7 +88,9 @@ module.exports = function(robot) {
     }
 
     if (!queue.isEmpty() && !queue.isCurrent(user)) {
-      // Send DM to next in line if the queue isn't empty and it's not the person who just finished deploying.
+      // Message about the next user to make the queue more obvious
+      res.reply(queue.current().name + ' is up next');
+      // Send message to next in line if the queue isn't empty and it's not the person who just finished deploying.
       notifyUser(queue.current());
     }
   }

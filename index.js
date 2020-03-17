@@ -179,7 +179,7 @@ module.exports = function(robot) {
     } else {
       queue.remove(user, areUsersEqual);
       res.reply('Alright, I took you out of the queue. Come back soon!');
-      if (!queue.isEmpty() && !queue.isCurrent(user)) {
+      if (!queue.isEmpty()) {
         // Send DM to next in line if the queue isn't empty and it's not the person who just finished deploying.
         notifyUser(queue.current());
       }

@@ -70,7 +70,7 @@ module.exports = function(robot) {
       cycleTimeout(user);
     } else if (length === 2 && !isCurrent) {
       res.reply('Alrighty, you\'re up after current deployer.');
-    } else if (isCurrent && length == grouped.length) {
+    } else if (isCurrent && length === grouped.length) {
       cycleTimeout(user);
       res.reply('Ok! You are now deploying ' + grouped.length + ' things in a row.');
     } else {
@@ -232,7 +232,7 @@ module.exports = function(robot) {
    * Get a list of all the items at the beginning of the queue for a given user.
    */
   function firstGroup() {
-    const queueValue = queue.get();
+    var queueValue = queue.get();
     var last = queueValue[0];
     if (last === undefined) {
       return [];
@@ -262,7 +262,7 @@ module.exports = function(robot) {
   }
 
   function getRandomReaction() {
-    const reactions = [':smart:', ':rocket:', ':hyperclap:', ':confetti_ball:'];
+    var reactions = [':smart:', ':rocket:', ':hyperclap:', ':confetti_ball:'];
     return reactions[Math.floor(Math.random() * reactions.length)];
   }
 

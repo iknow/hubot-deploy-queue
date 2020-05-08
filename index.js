@@ -1,8 +1,7 @@
 var queue = require('./lib/queue')
-  , _ = require('lodash');
-
-var timeout = null;
-var TIMEOUT_DURATION = 30 * 60 * 1000; // 30 min
+  , _ = require('lodash')
+  , timeout = null
+  , TIMEOUT_DURATION = 30 * 60 * 1000; // 30 min
 
 module.exports = function(robot) {
   robot.brain.on('loaded', function() {
@@ -38,7 +37,7 @@ module.exports = function(robot) {
     );
   }
 
-  function pingInactive(message, name) {
+  function pingInactive(name) {
     if (queue.isCurrent({ name: name })) {
       robot.messageRoom(name, 'Are you still deploying?');
     }
@@ -46,7 +45,7 @@ module.exports = function(robot) {
 
   function cycleTimeout(name) {
     clearTimeout(timeout);
-    timeout = setTimeout(function () {
+    timeout = setTimeout(function() {
       pingInactive(name);
     }, TIMEOUT_DURATION);
   }
@@ -57,19 +56,22 @@ module.exports = function(robot) {
    */
   function queueUser(res) {
     var user = res.message.user.name
-      , metadata = (res.match[2] || '').trim();
+      , metadata = (res.match[2] || '').trim()
+      , length = 0
+      , isCurrent = false
+      , grouped = [];
 
     queue.push({name: user, metadata: metadata});
 
-    var length = queue.length();
-    var isCurrent = queue.isCurrent({ name: user });
-    var grouped = firstGroup();
+    length = queue.length();
+    isCurrent = queue.isCurrent({ name: user });
+    grouped = firstGroup();
 
     if (length === 1) {
       res.reply('Go for it!');
       cycleTimeout(user);
     } else if (length === 2 && !isCurrent) {
-      res.reply('Alrighty, you\'re up after current deployer.');
+      res.reply('Alrighty, you\'re up after the current deployer.');
     } else if (isCurrent && length === grouped.length) {
       cycleTimeout(user);
       res.reply('Ok! You are now deploying ' + grouped.length + ' things in a row.');
@@ -126,9 +128,8 @@ module.exports = function(robot) {
       res.reply('It\'s you. _You\'re_ deploying. Right now.');
     } else {
       var current = queue.current()
-        , message = current.name + ' is deploying';
-
-      var grouped = firstGroup();
+        , message = current.name + ' is deploying'
+        , grouped = firstGroup();
 
       if (grouped.length === 1) {
         message += current.metadata ? ' ' + current.metadata : '.';
@@ -233,12 +234,12 @@ module.exports = function(robot) {
    */
   function firstGroup() {
     var queueValue = queue.get();
-    var last = queueValue[0];
-    if (last === undefined) {
+    if (queueValue[0] === undefined) {
       return [];
     }
 
-    var group = [last];
+    var last = queueValue[0]
+      , group = [queueValue[0]];
     for (var index = 0; index < queueValue.length; index++) {
       var next = queueValue[index + 1];
       if (next && next.name === last.name) {

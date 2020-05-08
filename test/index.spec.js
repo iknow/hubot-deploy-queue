@@ -17,7 +17,7 @@ describe('Index', function() {
   beforeEach(function() {
     queueMock = {};
 
-    ['init', 'get', 'isEmpty', 'isCurrent', 'isNext', 'contains', 'length', 'push', 'current', 'next', 'advance', 'remove'].forEach(function(method) {
+    ['init', 'get', 'isEmpty', 'isCurrent', 'isNext', 'contains', 'length', 'push', 'current', 'next', 'advance', 'remove', 'grouped'].forEach(function(method) {
       queueMock[method] = sinon.stub();
     });
 
@@ -52,9 +52,7 @@ describe('Index', function() {
     DeployQueue(robotMock);
     robotMock.brain.emit('loaded');
 
-    expect(robotMock.brain.deploy).to.exist;
-    expect(robotMock.brain.deploy).to.be.an('object');
-    expect(queueMock.init).to.have.been.calledWith(robotMock.brain.deploy);
+    expect(queueMock.init).to.have.been.calledWith(robotMock);
   });
 
   it('should play pong', function() {
@@ -78,14 +76,16 @@ describe('Index', function() {
 
     beforeEach(function() {
       robotMock.respond.withArgs(/deploy (add)(.*)?/i).yields(resMock);
-      queueMock.contains.returns(false);
+      queueMock.length.returns(0);
+      queueMock.get.returns([]);
+      queueMock.isCurrent.returns(true);
     });
 
     it('should reply if user is already in the queue', function() {
-      queueMock.contains.returns(true);
+      queueMock.length.returns(2);
+      queueMock.get.returns([{name: 'walterwhite'}, {name: 'walterwhite'}]);
       DeployQueue(robotMock);
-      expect(queueMock.contains).to.be.calledWith({name: 'walterwhite'});
-      expect(resMock.reply.firstCall.args[0]).to.match(/^Whoa, hold you're horses!/);
+      expect(resMock.reply.firstCall.args[0]).to.match(/2 things in a row/);
     });
 
     it('should add metadata', function() {
@@ -98,15 +98,16 @@ describe('Index', function() {
     });
 
     it('should allow a user to deploy immediately if there are no users in the queue', function() {
-      queueMock.length.returns(0);
+      queueMock.length.returns(1);
       DeployQueue(robotMock);
       expect(resMock.reply).to.have.been.calledWith('Go for it!');
     });
 
     it('should reply if the user is going to be next', function() {
-      queueMock.length.returns(1);
+      queueMock.length.returns(2);
+      queueMock.isCurrent.returns(false);
       DeployQueue(robotMock);
-      expect(resMock.reply).to.have.been.calledWith('Alrighty, you\'re up next!');
+      expect(resMock.reply.getCall(0).args[0]).to.match(/Alrighty, you\'re up after the current deployer/);
     });
 
     it('should tell the user how many people are before them if they aren\'t next', function() {
@@ -117,24 +118,32 @@ describe('Index', function() {
 
     it('should put a timer on the user to notify them that they are deploying for a while', function () {
       var timers = sinon.useFakeTimers();
+      queueMock.length.returns(1);
       DeployQueue(robotMock);
       expect(resMock.reply).to.have.been.calledWith('Go for it!');
       timers.tick(45 * 60 * 1000); // Tick 45 minutes
-      expect(resMock.reply).to.have.been.calledWith('Are you still deploying?');
+      expect(robotMock.messageRoom.getCall(0).args).to.eql([
+        'walterwhite',
+        'Are you still deploying?',
+      ]);
       sinon.restore();
     });
   });
 
   describe('done', function() {
     beforeEach(function() {
-      robotMock.respond.withArgs(/deploy (done|complete|donzo)/i).yields(resMock);
+      robotMock.respond.withArgs(/deploy (done|complete)/i).yields(resMock);
     });
 
     it('should not remove a user if they aren\'t in the queue', function() {
       queueMock.contains.returns(false);
       DeployQueue(robotMock);
-      expect(queueMock.contains).to.be.calledWith({name:'walterwhite'});
-      expect(resMock.reply.firstCall.args[0]).to.match(/Ummm, this is a little embarrassing/);
+      expect(queueMock.contains.getCall(0).args).to.eql([
+        {name:'walterwhite'}
+      ]);
+      expect(resMock.reply.getCall(0).args).to.eql([
+        'Ummm, this is a little embarrassing, but you aren\'t in the queue :grimacing:'
+      ]);
     });
 
     it('should reply if the user isn\'t at the head of the queue', function() {
@@ -147,9 +156,11 @@ describe('Index', function() {
 
     it('should advance the queue and notify the next user', function() {
       queueMock.contains.returns(true);
-      queueMock.isCurrent.returns(true);
+      queueMock.isCurrent.onCall(0).returns(true);
+      queueMock.isCurrent.onCall(1).returns(false);
       queueMock.isEmpty.returns(false);
       queueMock.current.returns({name:'jessepinkman'});
+      queueMock.get.returns([]);
 
       DeployQueue(robotMock);
       expect(queueMock.advance).to.be.called;
@@ -159,7 +170,10 @@ describe('Index', function() {
 
     it('should advance the queue and not notify if there is no next', function() {
       queueMock.contains.returns(true);
+      queueMock.get.returns([]);
       queueMock.isCurrent.returns(true);
+      queueMock.isCurrent.onCall(0).returns(true);
+      queueMock.isCurrent.onCall(1).returns(false);
       queueMock.isEmpty.returns(true);
 
       DeployQueue(robotMock);
@@ -170,30 +184,32 @@ describe('Index', function() {
 
     it('should clear the timer set on the user', function () {
       var timers = sinon.useFakeTimers();
+      queueMock.get.returns([]);
       queueMock.contains.returns(true);
-      queueMock.isCurrent.returns(true);
+      queueMock.isCurrent.onCall(0).returns(true);
+      queueMock.isCurrent.onCall(1).returns(false);
       queueMock.isEmpty.returns(true);
 
       DeployQueue(robotMock);
       expect(queueMock.advance).to.be.called;
       expect(resMock.reply.firstCall.args[0]).to.match(/Nice job!/);
       expect(robotMock.messageRoom).not.to.have.been.called;
-      resMock.reply.resetHistory();
       timers.tick(45 * 60 * 1000); // Tick 45 minutes
-      expect(resMock.reply).to.not.have.been.called;
+      expect(robotMock.messageRoom).to.not.have.been.called;
       sinon.restore();
     });
   });
   describe('current', function() {
 
     beforeEach(function() {
-      robotMock.respond.withArgs(/deploy (current|who\'s (deploying|at bat))/i).yields(resMock);
+      robotMock.respond.withArgs(/deploy (current|who\'s deploying)/i).yields(resMock);
+      queueMock.get.returns([{name: 'gus'}]);
     });
 
     it('should send if nobody if deploying', function() {
       queueMock.isEmpty.returns(true);
       DeployQueue(robotMock);
-      expect(resMock.send).to.be.calledWith('Nobodyz!');
+      expect(resMock.send.getCall(0).args).to.eql(['Nobody!']);
     });
 
     it('should reply if the current user is deploying', function() {
@@ -210,11 +226,14 @@ describe('Index', function() {
       queueMock.isEmpty.returns(false);
       queueMock.isCurrent.returns(false);
       queueMock.current.returns({name: 'gus', metadata: 'blue sky'});
+      queueMock.get.returns([{name: 'gus'}, {name: 'gus'}]);
 
       DeployQueue(robotMock);
 
       expect(queueMock.isCurrent).to.be.calledWith({name: 'walterwhite'});
-      expect(resMock.send).to.be.calledWith('gus is deploying blue sky');
+      expect(resMock.send.getCall(0).args).to.eql(
+        ['gus is deploying 2 items.'],
+      );
     });
 
     it('should send about the current user without metadata', function() {
@@ -233,13 +252,13 @@ describe('Index', function() {
   describe('next', function() {
 
     beforeEach(function() {
-      robotMock.respond.withArgs(/deploy (next|who\'s (next|on first|on deck))/i).yields(resMock);
+      robotMock.respond.withArgs(/deploy (next|who\'s next)/i).yields(resMock);
     });
 
     it('should respond if there is no next', function() {
       queueMock.next.returns(undefined);
       DeployQueue(robotMock);
-      expect(resMock.send).to.have.been.calledWith('Nobodyz!');
+      expect(resMock.send).to.have.been.calledWith('Nobody!');
     });
 
     it('should respond if the current user is next', function() {
@@ -247,7 +266,7 @@ describe('Index', function() {
       queueMock.isNext.returns(true);
 
       DeployQueue(robotMock);
-      expect(resMock.reply).to.have.been.calledWith('You\'re up next! Get ready!');
+      expect(resMock.reply).to.have.been.calledWith('You\'re up next!');
     });
 
     it('should respond if someone else is on deck', function() {
@@ -255,7 +274,9 @@ describe('Index', function() {
       queueMock.isNext.returns(false);
 
       DeployQueue(robotMock);
-      expect(resMock.send).to.have.been.calledWith('capncook is on deck.');
+      expect(resMock.send.getCall(0).args).to.eql([
+        'capncook is next.'
+      ]);
     });
   });
 
@@ -292,7 +313,10 @@ describe('Index', function() {
       expect(queueMock.isCurrent).to.have.been.calledWith({ name: 'gus' });
       expect(queueMock.remove).to.have.been.calledWith({ name: 'gus' });
       expect(resMock.send.firstCall.args[0]).to.match(/gus has been removed from the queue/);
-      expect(robotMock.messageRoom).to.have.been.calledWith('heisenberg', 'Hey, you\'re turn to deploy!');
+      expect(robotMock.messageRoom.getCall(0).args).to.eql([
+        'heisenberg',
+        'Hey, it\'s your turn to deploy!',
+      ]);
     });
 
     it('should remove the specified user and not notify the next user if the list is empty', function() {
@@ -336,16 +360,6 @@ describe('Index', function() {
         expect(resMock.reply.firstCall.args[0]).to.match(/No sweat!/);
       });
 
-      it('should should not remove user when user is at the head', function() {
-        queueMock.contains.returns(true);
-        queueMock.isCurrent.returns(true);
-        DeployQueue(robotMock);
-
-        expect(queueMock.isCurrent).to.have.been.calledWith({ name: 'walterwhite' });
-        expect(queueMock.contains).to.have.been.calledWith({ name: 'walterwhite' });
-        expect(resMock.reply.firstCall.args[0]).to.match(/You're deploying right now!/);
-      });
-
       it('should remove the user from the queue and not notify', function() {
         queueMock.contains.returns(true);
         queueMock.length.returns(2);
@@ -372,7 +386,9 @@ describe('Index', function() {
     it('should send if queue is empty', function() {
       queueMock.isEmpty.returns(true);
       DeployQueue(robotMock);
-      expect(resMock.send).to.have.been.calledWith('Nobodyz! Like this: []')
+      expect(resMock.send.getCall(0).args).to.eql([
+        'Nobody!'
+      ]);
     });
 
     it('should send if there is something in the queue', function() {

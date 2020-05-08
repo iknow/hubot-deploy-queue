@@ -114,6 +114,15 @@ describe('Index', function() {
       DeployQueue(robotMock);
       expect(resMock.reply.firstCall.args[0]).to.match(/9/);
     });
+
+    it('should put a timer on the user to notify them that they are deploying for a while', function () {
+      var timers = sinon.useFakeTimers();
+      DeployQueue(robotMock);
+      expect(resMock.reply).to.have.been.calledWith('Go for it!');
+      timers.tick(45 * 60 * 1000); // Tick 45 minutes
+      expect(resMock.reply).to.have.been.calledWith('Are you still deploying?');
+      sinon.restore();
+    });
   });
 
   describe('done', function() {
@@ -158,8 +167,23 @@ describe('Index', function() {
       expect(resMock.reply.firstCall.args[0]).to.match(/Nice job!/);
       expect(robotMock.messageRoom).not.to.have.been.called;
     });
-  });
 
+    it('should clear the timer set on the user', function () {
+      var timers = sinon.useFakeTimers();
+      queueMock.contains.returns(true);
+      queueMock.isCurrent.returns(true);
+      queueMock.isEmpty.returns(true);
+
+      DeployQueue(robotMock);
+      expect(queueMock.advance).to.be.called;
+      expect(resMock.reply.firstCall.args[0]).to.match(/Nice job!/);
+      expect(robotMock.messageRoom).not.to.have.been.called;
+      resMock.reply.resetHistory();
+      timers.tick(45 * 60 * 1000); // Tick 45 minutes
+      expect(resMock.reply).to.not.have.been.called;
+      sinon.restore();
+    });
+  });
   describe('current', function() {
 
     beforeEach(function() {

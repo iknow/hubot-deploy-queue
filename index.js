@@ -1,6 +1,8 @@
 var queue = require('./lib/queue')
   , _ = require('lodash');
 
+var timeout = null;
+var TIMEOUT_DURATION = 30 * 60 * 1000; // 30 min
 
 module.exports = function(robot) {
   robot.brain.on('loaded', function() {
@@ -36,6 +38,19 @@ module.exports = function(robot) {
     );
   }
 
+  function pingInactive(message, name) {
+    if (queue.isCurrent({ name: name })) {
+      robot.messageRoom(name, 'Are you still deploying?');
+    }
+  }
+
+  function cycleTimeout(name) {
+    clearTimeout(timeout);
+    timeout = setTimeout(function () {
+      pingInactive(name);
+    }, TIMEOUT_DURATION);
+  }
+
   /**
    * Add a user to the queue
    * @param res
@@ -52,9 +67,11 @@ module.exports = function(robot) {
 
     if (length === 1) {
       res.reply('Go for it!');
+      cycleTimeout(user);
     } else if (length === 2 && !isCurrent) {
       res.reply('Alrighty, you\'re up after current deployer.');
     } else if (isCurrent && length == grouped.length) {
+      cycleTimeout(user);
       res.reply('Ok! You are now deploying ' + grouped.length + ' things in a row.');
     } else {
       res.reply('There\'s ' + (length - 1) + ' things to deploy in the queue ahead of you. I\'ll let you know when you\'re up.');
@@ -82,8 +99,10 @@ module.exports = function(robot) {
     var grouped = firstGroup();
 
     if (queue.isCurrent(user)) {
+      cycleTimeout(user.name);
       res.reply('Nice! Only ' + grouped.length + ' more to go! ' + getRandomReaction());
     } else {
+      clearTimeout(timeout);
       res.reply('Nice job! :tada:');
     }
 
@@ -159,6 +178,7 @@ module.exports = function(robot) {
     }
 
     queue.remove(user, areUsersEqual);
+    clearTimeout(timeout);
     res.send(name + ' has been removed from the queue. I hope that\'s what you meant to do...');
 
     if (notifyNextUser) {
@@ -179,6 +199,7 @@ module.exports = function(robot) {
       res.reply('No sweat! You weren\'t even in the queue :)');
     } else {
       queue.remove(user, areUsersEqual);
+      clearTimeout(timeout);
       res.reply('Alright, I took you out of the queue. Come back soon!');
       if (!queue.isEmpty() && wasCurrent) {
         // Send DM to next in line if the queue isn't empty and it's not the person who just finished deploying.
@@ -237,6 +258,7 @@ module.exports = function(robot) {
    */
   function notifyUser(user) {
     robot.messageRoom(user.name, 'Hey, it\'s your turn to deploy!');
+    cycleTimeout(user.name);
   }
 
   function getRandomReaction() {

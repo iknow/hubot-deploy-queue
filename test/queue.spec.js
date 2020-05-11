@@ -1,23 +1,31 @@
 var chai = require('chai')
-  , expect = chai.expect;
+  , expect = chai.expect
+  , sinon = require('sinon');
 
 describe('Queue', function() {
   var queue
-    , brain;
+    , robot
+    , BrainMock;
 
   beforeEach(function() {
     queue = require('../lib/queue');
-    brain = {};
-    queue.init(brain);
+    BrainMock = {
+      get: sinon.stub(),
+      set: sinon.stub(),
+    }
+    robot = {
+      brain: BrainMock,
+    };
+    queue.init(robot);
   });
 
   it('should create a queue object', function() {
-    expect(brain.queue).to.be.an.array;
-    expect(brain.queue).to.have.length(0);
+    expect(queue.get()).to.be.an.array;
+    expect(queue.get()).to.have.length(0);
   });
 
   it('should return the queue', function() {
-    expect(queue.get()).to.equal(brain.queue);
+    expect(queue.get()).to.eql([]);
   });
 
   it('should test that the queue is empty', function() {
@@ -28,9 +36,9 @@ describe('Queue', function() {
 
   it('should allow items to be pushed onto the queue', function() {
     var item = {name: 'walterwhite', othername: 'heisenberg'};
-    expect(brain.queue).to.have.length(0);
+    expect(queue.get()).to.have.length(0);
     queue.push(item);
-    expect(brain.queue).to.have.length(1);
+    expect(queue.get()).to.have.length(1);
   });
 
   it('should test if an item is at the head of the queue', function() {
@@ -110,7 +118,7 @@ describe('Queue', function() {
     queue.push(jesse);
 
     expect(queue.length()).to.equal(2);
-    queue.remove({name: 'jesse'}, funciton(a, b) {
+    queue.remove({name: 'jesse'}, function(a, b) {
       return a.name === b.name;
     });
     expect(queue.length()).to.equal(1);

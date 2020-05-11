@@ -1,6 +1,7 @@
 var queue = require('./lib/queue')
-  , _ = require('lodash');
-
+  , _ = require('lodash')
+  , timeout = null
+  , TIMEOUT_DURATION = 30 * 60 * 1000; // 30 min
 
 module.exports = function(robot) {
   robot.brain.on('loaded', function() {
@@ -36,25 +37,43 @@ module.exports = function(robot) {
     );
   }
 
+  function pingInactive(name) {
+    if (queue.isCurrent({ name: name })) {
+      robot.messageRoom(name, 'Are you still deploying?');
+    }
+  }
+
+  function cycleTimeout(name) {
+    clearTimeout(timeout);
+    timeout = setTimeout(function() {
+      pingInactive(name);
+    }, TIMEOUT_DURATION);
+  }
+
   /**
    * Add a user to the queue
    * @param res
    */
   function queueUser(res) {
     var user = res.message.user.name
-      , metadata = (res.match[2] || '').trim();
+      , metadata = (res.match[2] || '').trim()
+      , length = 0
+      , isCurrent = false
+      , grouped = [];
 
     queue.push({name: user, metadata: metadata});
 
-    var length = queue.length();
-    var isCurrent = queue.isCurrent({ name: user });
-    var grouped = firstGroup();
+    length = queue.length();
+    isCurrent = queue.isCurrent({ name: user });
+    grouped = firstGroup();
 
     if (length === 1) {
       res.reply('Go for it!');
+      cycleTimeout(user);
     } else if (length === 2 && !isCurrent) {
-      res.reply('Alrighty, you\'re up after current deployer.');
-    } else if (isCurrent && length == grouped.length) {
+      res.reply('Alrighty, you\'re up after the current deployer.');
+    } else if (isCurrent && length === grouped.length) {
+      cycleTimeout(user);
       res.reply('Ok! You are now deploying ' + grouped.length + ' things in a row.');
     } else {
       res.reply('There\'s ' + (length - 1) + ' things to deploy in the queue ahead of you. I\'ll let you know when you\'re up.');
@@ -82,8 +101,10 @@ module.exports = function(robot) {
     var grouped = firstGroup();
 
     if (queue.isCurrent(user)) {
+      cycleTimeout(user.name);
       res.reply('Nice! Only ' + grouped.length + ' more to go! ' + getRandomReaction());
     } else {
+      clearTimeout(timeout);
       res.reply('Nice job! :tada:');
     }
 
@@ -107,9 +128,8 @@ module.exports = function(robot) {
       res.reply('It\'s you. _You\'re_ deploying. Right now.');
     } else {
       var current = queue.current()
-        , message = current.name + ' is deploying';
-
-      var grouped = firstGroup();
+        , message = current.name + ' is deploying'
+        , grouped = firstGroup();
 
       if (grouped.length === 1) {
         message += current.metadata ? ' ' + current.metadata : '.';
@@ -159,6 +179,7 @@ module.exports = function(robot) {
     }
 
     queue.remove(user, areUsersEqual);
+    clearTimeout(timeout);
     res.send(name + ' has been removed from the queue. I hope that\'s what you meant to do...');
 
     if (notifyNextUser) {
@@ -179,6 +200,7 @@ module.exports = function(robot) {
       res.reply('No sweat! You weren\'t even in the queue :)');
     } else {
       queue.remove(user, areUsersEqual);
+      clearTimeout(timeout);
       res.reply('Alright, I took you out of the queue. Come back soon!');
       if (!queue.isEmpty() && wasCurrent) {
         // Send DM to next in line if the queue isn't empty and it's not the person who just finished deploying.
@@ -211,13 +233,13 @@ module.exports = function(robot) {
    * Get a list of all the items at the beginning of the queue for a given user.
    */
   function firstGroup() {
-    const queueValue = queue.get();
-    var last = queueValue[0];
-    if (last === undefined) {
+    var queueValue = queue.get();
+    if (queueValue[0] === undefined) {
       return [];
     }
 
-    var group = [last];
+    var last = queueValue[0]
+      , group = [queueValue[0]];
     for (var index = 0; index < queueValue.length; index++) {
       var next = queueValue[index + 1];
       if (next && next.name === last.name) {
@@ -237,10 +259,11 @@ module.exports = function(robot) {
    */
   function notifyUser(user) {
     robot.messageRoom(user.name, 'Hey, it\'s your turn to deploy!');
+    cycleTimeout(user.name);
   }
 
   function getRandomReaction() {
-    const reactions = [':smart:', ':rocket:', ':hyperclap:', ':confetti_ball:'];
+    var reactions = [':smart:', ':rocket:', ':hyperclap:', ':confetti_ball:'];
     return reactions[Math.floor(Math.random() * reactions.length)];
   }
 

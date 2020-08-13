@@ -37,17 +37,26 @@ module.exports = function(robot) {
     );
   }
 
-  function pingInactive(name) {
-    if (queue.isCurrent({ name: name })) {
-      robot.messageRoom(name, 'Are you still deploying?');
+  function pingInactive(user) {
+    if (queue.isCurrent(user)) {
+      robot.messageRoom(user.id, 'Are you still deploying?');
     }
   }
 
-  function cycleTimeout(name) {
+  function cycleTimeout(user) {
     clearTimeout(timeout);
     timeout = setTimeout(function() {
-      pingInactive(name);
+      pingInactive(user);
     }, TIMEOUT_DURATION);
+  }
+
+  function getUserName(user) {
+    const fullUser = robot.brain.userForId(user.id);
+    if (fullUser.slack) {
+      return fullUser.slack.profile.display_name;
+    } else {
+      return fullUser.name;
+    }
   }
 
   /**
@@ -55,16 +64,17 @@ module.exports = function(robot) {
    * @param res
    */
   function queueUser(res) {
-    var user = res.message.user.name
-      , metadata = (res.match[2] || '').trim()
+    const user = { id: res.message.user.id };
+
+    var  metadata = (res.match[2] || '').trim()
       , length = 0
       , isCurrent = false
       , grouped = [];
 
-    queue.push({name: user, metadata: metadata});
+    queue.push({ ...user, metadata });
 
     length = queue.length();
-    isCurrent = queue.isCurrent({ name: user });
+    isCurrent = queue.isCurrent(user);
     grouped = firstGroup();
 
     if (length === 1) {
@@ -85,7 +95,7 @@ module.exports = function(robot) {
    * @param res
    */
   function dequeueUser(res) {
-    var user = { name: res.message.user.name };
+    const user = { id: res.message.user.id };
 
     if (!queue.contains(user)) {
       res.reply('Ummm, this is a little embarrassing, but you aren\'t in the queue :grimacing:');
@@ -101,7 +111,7 @@ module.exports = function(robot) {
     var grouped = firstGroup();
 
     if (queue.isCurrent(user)) {
-      cycleTimeout(user.name);
+      cycleTimeout(user);
       res.reply('Nice! Only ' + grouped.length + ' more to go! ' + getRandomReaction());
     } else {
       clearTimeout(timeout);
@@ -119,8 +129,7 @@ module.exports = function(robot) {
    * @param res
    */
   function whosDeploying(res) {
-    var name = res.message.user.name
-      , user = {name: name};
+    const user = { id: res.message.user.id };
 
     if (queue.isEmpty()) {
       res.send('Nobody!');
@@ -128,7 +137,7 @@ module.exports = function(robot) {
       res.reply('It\'s you. _You\'re_ deploying. Right now.');
     } else {
       var current = queue.current()
-        , message = current.name + ' is deploying'
+        , message = getUserName(current) + ' is deploying'
         , grouped = firstGroup();
 
       if (grouped.length === 1) {
@@ -146,15 +155,15 @@ module.exports = function(robot) {
    * @param res
    */
   function whosNext(res) {
-    var user = res.message.user.name
-      , next = queue.next();
+    const user = { id: res.message.user.id };
+    const next = queue.next();
 
     if (!next) {
       res.send('Nobody!');
-    } else if (queue.isNext({name: user})) {
+    } else if (queue.isNext(user)) {
       res.reply('You\'re up next!');
     } else {
-      res.send(queue.next().name + ' is next.');
+      res.send(getUserName(next) + ' is next.');
     }
   }
 
@@ -163,22 +172,22 @@ module.exports = function(robot) {
    * @param res
    */
   function removeUser(res) {
-    var name = res.match[2]
-      , user = {name: name}
-      , isCurrent = queue.isCurrent(user)
-      , notifyNextUser = isCurrent && queue.length() > 1;
-
+    const name = res.match[2];
     if (name === 'me') {
       removeMe(res);
       return;
     }
 
-    if (!queue.contains(user)) {
+    const matchByUserName = (item) => getUserName(item) === name;
+
+    const isCurrent = queue.isCurrent(matchByUserName);
+    const notifyNextUser = isCurrent && queue.length() > 1;
+
+    const removed = queue.remove(matchByUserName);
+    if (removed === 0) {
       res.send(name + ' isn\'t in the queue :)');
       return;
     }
-
-    queue.remove(user, areUsersEqual);
     clearTimeout(timeout);
     res.send(name + ' has been removed from the queue. I hope that\'s what you meant to do...');
 
@@ -192,14 +201,13 @@ module.exports = function(robot) {
    * @param res
    */
   function removeMe(res) {
-    var name = res.message.user.name
-      , user = {name: name}
-      , wasCurrent = queue.isCurrent(user);
+    const user = { id: res.message.user.id };
+    const wasCurrent = queue.isCurrent(user);
 
     if (!queue.contains(user)) {
       res.reply('No sweat! You weren\'t even in the queue :)');
     } else {
-      queue.remove(user, areUsersEqual);
+      queue.remove((item) => item.id === user.id);
       clearTimeout(timeout);
       res.reply('Alright, I took you out of the queue. Come back soon!');
       if (!queue.isEmpty() && wasCurrent) {
@@ -217,7 +225,7 @@ module.exports = function(robot) {
     if (queue.isEmpty()) {
       res.send('Nobody!');
     } else {
-      res.send('Here\'s who\'s in the queue: ' + _.pluck(queue.get(), 'name').join(', ') + '.');
+      res.send('Here\'s who\'s in the queue: ' + queue.get().map(getUserName).join(', ') + '.');
     }
   }
 
@@ -242,7 +250,7 @@ module.exports = function(robot) {
       , group = [queueValue[0]];
     for (var index = 0; index < queueValue.length; index++) {
       var next = queueValue[index + 1];
-      if (next && next.name === last.name) {
+      if (next && next.id === last.id) {
         group.push(next);
         last = next;
       } else {
@@ -258,16 +266,12 @@ module.exports = function(robot) {
    * @param user
    */
   function notifyUser(user) {
-    robot.messageRoom(user.name, 'Hey, it\'s your turn to deploy!');
-    cycleTimeout(user.name);
+    robot.messageRoom(user.id, 'Hey, it\'s your turn to deploy!');
+    cycleTimeout(user);
   }
 
   function getRandomReaction() {
     var reactions = [':smart:', ':rocket:', ':hyperclap:', ':confetti_ball:'];
     return reactions[Math.floor(Math.random() * reactions.length)];
-  }
-
-  function areUsersEqual(u1, u2) {
-    return u1.name === u2.name;
   }
 };
